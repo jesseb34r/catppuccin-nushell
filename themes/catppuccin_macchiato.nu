@@ -146,7 +146,7 @@ $env.config.color_config = {
   shape_binary: $scheme.constant
   shape_datetime: $scheme.constant
   shape_literal: $scheme.constant
-  string: $scheme.string
+  string: {|| if $in =~ '^#[a-fA-F\d]+' { $in } else { $scheme.string } }
   shape_string: $scheme.string
   shape_string_interpolation: $theme.flamingo
   shape_raw_string: $scheme.string
