@@ -39,6 +39,117 @@ let scheme = {
   filepath: $theme.yellow
 }
 
+def hex-to-rgb [hex:string] {
+  let raw = ($hex | str trim | str downcase | str replace -r '^#' '')
+  let normalized = match ($raw | str length) {
+    3 => ($raw | split chars | each {|c| $"($c)($c)"} | str join)
+    6 => $raw
+  }
+
+  return {
+    r: ($normalized | str substring 0..1 | into int -r 16)
+    g: ($normalized | str substring 2..3 | into int -r 16)
+    b: ($normalized | str substring 4..5 | into int -r 16)
+  }
+}
+
+# Estimate Ys (screen luminance) using sRGB coefficients per APCA-W3
+def apca-Ys [color:record<r:int g:int b:int>] {
+  let s_trc = 2.4 # APCA constant
+
+  let Rs = ((($color.r / 255.0) ** $s_trc) * 0.2126729)
+  let Gs = ((($color.g / 255.0) ** $s_trc) * 0.7151522)
+  let Bs = ((($color.b / 255.0) ** $s_trc) * 0.0721750)
+
+  return ($Rs + $Gs + $Bs)
+}
+
+# Soft clip and clamp black levels
+def apca-softclip [Yc:float] {
+  # APCA constants
+  let B_clip = 1.414
+  let B_thrsh = 0.022
+
+  if $Yc < 0.0 {
+    return 0.0
+  } else if $Yc < $B_thrsh {
+    return ($Yc + (($B_thrsh - $Yc) ** $B_clip))
+  } else {
+    return $Yc
+  }
+}
+
+# Main: APCA Lc (lightness contrast) for text HEX on background HEX
+def apca-Lc [text_hex:string, bg_hex:string] {
+  # APCA constants for 0.0.98G-4g-sRGB
+  let Ntx = 0.57
+  let Nbg = 0.56
+  let Rtx = 0.62
+  let Rbg = 0.65
+  let W_scale = 1.14
+  let W_offset = 0.027
+  let W_clamp = 0.1
+
+  let txt_Ys = (apca-Ys (hex-to-rgb $text_hex))
+  let bg_Ys = (apca-Ys (hex-to-rgb $bg_hex))
+
+  let Ytxt = (apca-softclip $txt_Ys)
+  let Ybg = (apca-softclip $bg_Ys)
+
+  # Apply exponents based on polarity, then always BG - TXT
+  let Cw = (
+    if $Ybg > $Ytxt {
+      # Dark text on light background
+      (($Ybg ** $Nbg) - ($Ytxt ** $Ntx)) * $W_scale
+    } else {
+      # Light text on dark background
+      (($Ybg ** $Rbg) - ($Ytxt ** $Rtx)) * $W_scale
+    })
+
+  # Clamp minimum contrast and offset according to polarity
+  let Sapc = (
+    if ($Cw | math abs) < $W_clamp {
+      0.0
+    } else if $Cw > 0.0 {
+      $Cw - $W_offset
+    } else {
+      $Cw + $W_offset
+    })
+
+  return ($Sapc * 100)
+}
+
+let hex_string_rule = {||
+  if not ($in =~ '^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$') {
+    $scheme.string
+  } else {
+    # normalize #RGB to #RRGGBB
+    let hex = (if ($in | str length) == 4 {
+      $in | str replace -r '^#(.)(.)(.)$' '#$1$1$2$2$3$3'
+    } else { $in })
+
+    # Calculate APCA contrast between hex color and background
+    let contrast_lc = (apca-Lc $hex $theme.base)
+
+    # Use APCA Lc 60 for good contrast ratio
+    if ($contrast_lc | math abs) >= 60.0 {
+      { fg: $hex }
+    } else {
+      # Pick appropriate text color based on which gives better contrast
+      let text_contrast = (apca-Lc $theme.text $hex)
+      let base_contrast = (apca-Lc $theme.base $hex)
+
+      let text_fg = (if ($text_contrast | math abs) >= ($base_contrast | math abs) {
+        $theme.text
+      } else {
+        $theme.base
+      })
+
+      return { fg: $text_fg bg: $hex }
+    }
+  }
+}
+
 $env.config.color_config = {
   separator: { fg: $theme.surface2 attr: b }
   leading_trailing_space_bg: { fg: $theme.lavender attr: u }
@@ -146,7 +257,7 @@ $env.config.color_config = {
   shape_binary: $scheme.constant
   shape_datetime: $scheme.constant
   shape_literal: $scheme.constant
-  string: {|| if $in =~ '^#[a-fA-F\d]+' { $in } else { $scheme.string } }
+  string: $hex_string_rule
   shape_string: $scheme.string
   shape_string_interpolation: $theme.flamingo
   shape_raw_string: $scheme.string
