@@ -40,7 +40,7 @@ let scheme = {
 }
 
 def hex-to-rgb [hex:string] {
-  let raw = ($hex | str trim | str downcase | str replace -r '^#' '')
+  let raw = ($hex | str trim | str upcase | str replace -r '^#' '')
   let normalized = match ($raw | str length) {
     3 => ($raw | split chars | each {|c| $"($c)($c)"} | str join)
     6 => $raw
