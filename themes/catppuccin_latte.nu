@@ -132,7 +132,7 @@ let hex_string_rule = {||
     let contrast_lc = (apca-Lc $hex $theme.base)
 
     # Use APCA Lc 60 for good contrast ratio
-    if ($contrast_lc | math abs) >= 60.0 {
+    if ($contrast_lc | math abs) >= 45.0 {
       { fg: $hex }
     } else {
       # Pick appropriate text color based on which gives better contrast
